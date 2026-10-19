@@ -1,0 +1,431 @@
+## SVM
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV, KFold
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.preprocessing import label_binarize
+
+data = pd.read_csv('X_Cancer.csv')
+## Split data into training and testing sets
+X = data.drop("Group", axis=1)  # Features
+y = data["Group"] 
+# Parameters
+n_splits = 10
+test_size = 0.3
+kf = KFold(n_splits=10)  # 10-fold cross-validation for GridSearchCV
+param_gridsv = {
+    'C': [0.1, 1, 10, 100],
+    'gamma': [0.001, 0.01, 0.1, 1],
+    'kernel': ['rbf']
+} 
+# Initialize lists to store results
+classification_reports_trainsv = []
+classification_reports_testsv = []
+accuracies_trainsv = []
+accuracies_testsv = []
+auc_scores_trainsv = []
+auc_scores_testsv = []
+
+for i in range(n_splits):
+    # Split data for current iteration
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=i)
+    
+    # Initialize model and perform grid search
+    modelsv = SVC(probability=True)
+    grid_searchsv = GridSearchCV(modelsv, param_gridsv, cv=kf, scoring='accuracy')
+    grid_searchsv.fit(X_train, y_train)
+    best_modelsv = grid_searchsv.best_estimator_
+
+    # Predictions and probabilities
+    y_train_predsv = best_modelsv.predict(X_train)
+    y_train_pred_probasv = best_modelsv.predict_proba(X_train)
+    y_test_predsv = best_modelsv.predict(X_test)
+    y_test_pred_probasv = best_modelsv.predict_proba(X_test)
+
+    # Binarize labels for multi-class AUC calculation
+    y_train_binsv = label_binarize(y_train, classes=np.unique(y))
+    y_test_binsv = label_binarize(y_test, classes=np.unique(y))
+
+    # Calculate AUC scores for each class and average them
+    if y_train_binsv.shape[1] > 1:  # multi-class case
+        auc_trainsv = roc_auc_score(y_train_binsv, y_train_pred_probasv, average="macro", multi_class="ovr")
+        auc_testsv = roc_auc_score(y_test_binsv, y_test_pred_probasv, average="macro", multi_class="ovr")
+    else:  # binary case
+        auc_trainsv = roc_auc_score(y_train, y_train_pred_probasv[:, 1])  # for binary, select prob of class 1
+        auc_testsv = roc_auc_score(y_test, y_test_pred_probasv[:, 1])
+
+    # Append AUC scores to lists (separate row for each iteration)
+    auc_scores_trainsv.append(auc_trainsv)
+    auc_scores_testsv.append(auc_testsv)
+
+    # Classification reports and accuracy
+    report_trainsv = classification_report(y_train, y_train_predsv, output_dict=True)
+    report_testsv = classification_report(y_test, y_test_predsv, output_dict=True)
+    
+    classification_reports_trainsv.append(report_trainsv)
+    classification_reports_testsv.append(report_testsv)
+    
+    # Store accuracy
+    accuracies_trainsv.append(report_trainsv["accuracy"])
+    accuracies_testsv.append(report_testsv["accuracy"])
+# Calculate averages for SVM model
+avg_auc_trainsv = np.mean(auc_scores_trainsv)
+avg_auc_testsv = np.mean(auc_scores_testsv)
+avg_accuracy_trainsv = np.mean(accuracies_trainsv)
+avg_accuracy_testsv = np.mean(accuracies_testsv)
+
+# Calculate average precision, recall, and F1-score for each class in the classification reports for SVM
+def avg_classification_report_svm(reports):
+    avg_report = {}
+    for key in reports[0].keys():
+        if isinstance(reports[0][key], dict):  # For class-specific metrics
+            avg_report[key] = {}
+            for metric in reports[0][key].keys():
+                avg_report[key][metric] = np.mean([r[key][metric] for r in reports])
+        else:
+            avg_report[key] = np.mean([r[key] for r in reports])  # For overall metrics
+    return avg_report
+
+avg_classification_report_trainsv = avg_classification_report_svm(classification_reports_trainsv)
+avg_classification_report_testsv = avg_classification_report_svm(classification_reports_testsv)
+
+
+# Convert average SVM test classification report to DataFrame
+avg_classification_report_testsv_df = pd.DataFrame(avg_classification_report_testsv).T
+
+# Display the DataFrame
+print("Average SVM Test Classification Report:")
+print(avg_classification_report_testsv_df)
+
+
+# Convert average SVM test classification report to DataFrame
+avg_classification_report_trainsv_df = pd.DataFrame(avg_classification_report_trainsv).T
+
+# Display the DataFrame
+print("Average SVM Train Classification Report:")
+print(avg_classification_report_trainsv_df)
+
+
+
+## LGBM
+
+import lightgbm as lgb
+param_gridlg = {
+    'num_leaves': [31, 50, 100],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'n_estimators': [100, 200, 500]
+}
+# Initialize lists to store results
+classification_reports_trainlg = []
+classification_reports_testlg = []
+accuracies_trainlg = []
+accuracies_testlg = []
+auc_scores_trainlg = []
+auc_scores_testlg = []
+
+for i in range(n_splits):
+    # Split data for current iteration
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=i)
+    
+    # Initialize model and perform grid search
+    modellg = lgb.LGBMClassifier()
+    grid_searchlg = GridSearchCV(modellg, param_gridlg, cv=kf, scoring='accuracy',n_jobs=-1, verbose=0)
+    grid_searchlg.fit(X_train, y_train)
+    best_modellg = grid_searchlg.best_estimator_
+
+    # Predictions and probabilities
+    y_train_predlg = best_modellg.predict(X_train)
+    y_train_pred_probalg = best_modellg.predict_proba(X_train)
+    y_test_predlg = best_modellg.predict(X_test)
+    y_test_pred_probalg = best_modellg.predict_proba(X_test)
+
+    # Binarize labels for multi-class AUC calculation
+    y_train_binlg = label_binarize(y_train, classes=np.unique(y))
+    y_test_binlg = label_binarize(y_test, classes=np.unique(y))
+
+    # Calculate AUC scores for each class and average them
+    if y_train_binlg.shape[1] > 1:  # multi-class case
+        auc_trainlg = roc_auc_score(y_train_binlg, y_train_pred_probalg, average="macro", multi_class="ovr")
+        auc_testlg = roc_auc_score(y_test_binlg, y_test_pred_probalg, average="macro", multi_class="ovr")
+    else:  # binary case
+        auc_trainlg = roc_auc_score(y_train, y_train_pred_probalg[:, 1])  # for binary, select prob of class 1
+        auc_testlg = roc_auc_score(y_test, y_test_pred_probalg[:, 1])
+
+    # Append AUC scores to lists (separate row for each iteration)
+    auc_scores_trainlg.append(auc_trainlg)
+    auc_scores_testlg.append(auc_testlg)
+
+    # Classification reports and accuracy
+    report_trainlg = classification_report(y_train, y_train_predlg, output_dict=True)
+    report_testlg = classification_report(y_test, y_test_predlg, output_dict=True)
+    
+    classification_reports_trainlg.append(report_trainlg)
+    classification_reports_testlg.append(report_testlg)
+    
+    # Store accuracy
+    accuracies_trainlg.append(report_trainlg["accuracy"])
+    accuracies_testlg.append(report_testlg["accuracy"])
+# Calculate averages for LGBM model
+avg_auc_trainlg = np.mean(auc_scores_trainlg)
+avg_auc_testlg = np.mean(auc_scores_testlg)
+avg_accuracy_trainlg = np.mean(accuracies_trainlg)
+avg_accuracy_testlg = np.mean(accuracies_testlg)
+
+# Calculate average precision, recall, and F1-score for each class in the classification reports for LGBM
+def avg_classification_report_lgbm(reports):
+    avg_report = {}
+    for key in reports[0].keys():
+        if isinstance(reports[0][key], dict):  # For class-specific metrics
+            avg_report[key] = {}
+            for metric in reports[0][key].keys():
+                avg_report[key][metric] = np.mean([r[key][metric] for r in reports])
+        else:
+            avg_report[key] = np.mean([r[key] for r in reports])  # For overall metrics
+    return avg_report
+
+avg_classification_report_trainlg = avg_classification_report_lgbm(classification_reports_trainlg)
+avg_classification_report_testlg = avg_classification_report_lgbm(classification_reports_testlg)
+
+
+# Convert average LGBM test classification report to DataFrame
+avg_classification_report_testlg_df = pd.DataFrame(avg_classification_report_testlg).T
+
+# Display the DataFrame
+print("Average LGBM Test Classification Report:")
+print(avg_classification_report_testlg_df)
+
+
+# Convert average LGBM test classification report to DataFrame
+avg_classification_report_trainlg_df = pd.DataFrame(avg_classification_report_trainlg).T
+
+# Display the DataFrame
+print("Average LGBM Train Classification Report:")
+print(avg_classification_report_trainlg_df)
+
+
+
+## RF
+
+from sklearn.ensemble import RandomForestClassifier
+param_gridrf = {
+    'n_estimators': [100,110],
+    'max_features': ['auto', 'sqrt', 'log2'],
+    'max_depth': [None, 10, 20, 30],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'max_leaf_nodes': [16, 15, 14]
+}
+
+# Initialize lists to store results
+classification_reports_trainrf = []
+classification_reports_testrf = []
+accuracies_trainrf = []
+accuracies_testrf = []
+auc_scores_trainrf = []
+auc_scores_testrf = []
+
+for i in range(n_splits):
+    # Split data for current iteration
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=i)
+    
+    # Initialize model and perform grid search
+    modelrf = RandomForestClassifier()
+    grid_searchrf = GridSearchCV(modelrf, param_gridrf, cv=kf, scoring='accuracy', n_jobs=-1, verbose=0)
+    grid_searchrf.fit(X_train, y_train)
+    best_modelrf = grid_searchrf.best_estimator_
+
+    # Predictions and probabilities
+    y_train_predrf = best_modelrf.predict(X_train)
+    y_train_pred_probarf = best_modelrf.predict_proba(X_train)
+    y_test_predrf = best_modelrf.predict(X_test)
+    y_test_pred_probarf = best_modelrf.predict_proba(X_test)
+
+    # Binarize labels for multi-class AUC calculation
+    y_train_binrf = label_binarize(y_train, classes=np.unique(y))
+    y_test_binrf = label_binarize(y_test, classes=np.unique(y))
+
+    # Calculate AUC scores for each class and average them
+    if y_train_binrf.shape[1] > 1:  # multi-class case
+        auc_trainrf = roc_auc_score(y_train_binrf, y_train_pred_probarf, average="macro", multi_class="ovr")
+        auc_testrf = roc_auc_score(y_test_binrf, y_test_pred_probarf, average="macro", multi_class="ovr")
+    else:  # binary case
+        auc_trainrf = roc_auc_score(y_train, y_train_pred_probarf[:, 1])  # for binary, select prob of class 1
+        auc_testrf = roc_auc_score(y_test, y_test_pred_probarf[:, 1])
+
+    # Append AUC scores to lists
+    auc_scores_trainrf.append(auc_trainrf)
+    auc_scores_testrf.append(auc_testrf)
+
+    # Classification reports and accuracy
+    report_trainrf = classification_report(y_train, y_train_predrf, output_dict=True)
+    report_testrf = classification_report(y_test, y_test_predrf, output_dict=True)
+    
+    classification_reports_trainrf.append(report_trainrf)
+    classification_reports_testrf.append(report_testrf)
+    
+    # Store accuracy
+    accuracies_trainrf.append(report_trainrf["accuracy"])
+    accuracies_testrf.append(report_testrf["accuracy"])
+# Calculate averages for RandomForest model
+avg_auc_trainrf = np.mean(auc_scores_trainrf)
+avg_auc_testrf = np.mean(auc_scores_testrf)
+avg_accuracy_trainrf = np.mean(accuracies_trainrf)
+avg_accuracy_testrf = np.mean(accuracies_testrf)
+
+# Calculate average precision, recall, and F1-score for each class in the classification reports for RandomForest
+def avg_classification_report_rf(reports):
+    avg_report = {}
+    for key in reports[0].keys():
+        if isinstance(reports[0][key], dict):  # For class-specific metrics
+            avg_report[key] = {}
+            for metric in reports[0][key].keys():
+                avg_report[key][metric] = np.mean([r[key][metric] for r in reports])
+        else:
+            avg_report[key] = np.mean([r[key] for r in reports])  # For overall metrics
+    return avg_report
+
+avg_classification_report_trainrf = avg_classification_report_rf(classification_reports_trainrf)
+avg_classification_report_testrf = avg_classification_report_rf(classification_reports_testrf)
+
+
+# Convert average RandomForest test classification report to DataFrame
+avg_classification_report_testrf_df = pd.DataFrame(avg_classification_report_testrf).T
+
+# Display the DataFrame
+print("Average RandomForest Test Classification Report:")
+print(avg_classification_report_testrf_df)
+
+
+# Convert average RandomForest test classification report to DataFrame
+avg_classification_report_trainrf_df = pd.DataFrame(avg_classification_report_trainrf).T
+
+# Display the DataFrame
+print("Average RandomForest Train Classification Report:")
+print(avg_classification_report_trainrf_df)
+
+
+
+## XGB
+
+from xgboost import XGBClassifier
+param_gridxgb = {
+    'n_estimators': [100, 200, 500],
+    'max_depth': [3, 6, 9],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'subsample': [0.8, 0.9, 1.0],
+    'colsample_bytree': [0.8, 0.9, 1.0]
+}
+
+# Initialize lists to store results
+classification_reports_trainxgb = []
+classification_reports_testxgb = []
+accuracies_trainxgb = []
+accuracies_testxgb = []
+auc_scores_trainxgb = []
+auc_scores_testxgb = []
+
+for i in range(n_splits):
+    # Split data for current iteration
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=i)
+    
+    # Initialize model and perform grid search
+    modelxgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+    grid_searchxgb = GridSearchCV(modelxgb, param_gridxgb, cv=kf, scoring='accuracy', n_jobs=-1, verbose=0)
+    grid_searchxgb.fit(X_train, y_train)
+    best_modelxgb = grid_searchxgb.best_estimator_
+
+    # Predictions and probabilities
+    y_train_predxgb = best_modelxgb.predict(X_train)
+    y_train_pred_probaxgb = best_modelxgb.predict_proba(X_train)
+    y_test_predxgb = best_modelxgb.predict(X_test)
+    y_test_pred_probaxgb = best_modelxgb.predict_proba(X_test)
+
+    # Binarize labels for multi-class AUC calculation
+    y_train_binxgb = label_binarize(y_train, classes=np.unique(y))
+    y_test_binxgb = label_binarize(y_test, classes=np.unique(y))
+
+    # Calculate AUC scores for each class and average them
+    if y_train_binxgb.shape[1] > 1:  # multi-class case
+        auc_trainxgb = roc_auc_score(y_train_binxgb, y_train_pred_probaxgb, average="macro", multi_class="ovr")
+        auc_testxgb = roc_auc_score(y_test_binxgb, y_test_pred_probaxgb, average="macro", multi_class="ovr")
+    else:  # binary case
+        auc_trainxgb = roc_auc_score(y_train, y_train_pred_probaxgb[:, 1])  # for binary, select prob of class 1
+        auc_testxgb = roc_auc_score(y_test, y_test_pred_probaxgb[:, 1])
+
+    # Append AUC scores to lists
+    auc_scores_trainxgb.append(auc_trainxgb)
+    auc_scores_testxgb.append(auc_testxgb)
+
+    # Classification reports and accuracy
+    report_trainxgb = classification_report(y_train, y_train_predxgb, output_dict=True)
+    report_testxgb = classification_report(y_test, y_test_predxgb, output_dict=True)
+    
+    classification_reports_trainxgb.append(report_trainxgb)
+    classification_reports_testxgb.append(report_testxgb)
+    
+    # Store accuracy
+    accuracies_trainxgb.append(report_trainxgb["accuracy"])
+    accuracies_testxgb.append(report_testxgb["accuracy"])
+# Calculate averages for XGBoost model
+avg_auc_trainxgb = np.mean(auc_scores_trainxgb)
+avg_auc_testxgb = np.mean(auc_scores_testxgb)
+avg_accuracy_trainxgb = np.mean(accuracies_trainxgb)
+avg_accuracy_testxgb = np.mean(accuracies_testxgb)
+
+# Calculate average precision, recall, and F1-score for each class in the classification reports for XGBoost
+def avg_classification_report_xgb(reports):
+    avg_report = {}
+    for key in reports[0].keys():
+        if isinstance(reports[0][key], dict):  # For class-specific metrics
+            avg_report[key] = {}
+            for metric in reports[0][key].keys():
+                avg_report[key][metric] = np.mean([r[key][metric] for r in reports])
+        else:
+            avg_report[key] = np.mean([r[key] for r in reports])  # For overall metrics
+    return avg_report
+
+avg_classification_report_trainxgb = avg_classification_report_xgb(classification_reports_trainxgb)
+avg_classification_report_testxgb = avg_classification_report_xgb(classification_reports_testxgb)
+
+
+# Convert average XGB test classification report to DataFrame
+avg_classification_report_testxgb_df = pd.DataFrame(avg_classification_report_testxgb).T
+
+# Display the DataFrame
+print("Average RandomForest Test Classification Report:")
+print(avg_classification_report_testxgb_df)
+
+
+# Convert average XGB train classification report to DataFrame
+avg_classification_report_trainxgb_df = pd.DataFrame(avg_classification_report_trainxgb).T
+
+# Display the DataFrame
+print("Average RandomForest Train Classification Report:")
+print(avg_classification_report_trainxgb_df)
+
+
+#Random Undersampling
+
+import pandas as pd
+from sklearn.utils import resample
+df=pd.read_csv('Breast_Cancer.csv')
+
+# Separate majority and minority classes
+df_majority = df[df['Group'] == df['Group'].value_counts().idxmax()]
+df_minority = df[df['Group'] != df['Group'].value_counts().idxmax()]
+
+# Downsample majority class
+df_majority_downsampled = resample(df_majority, 
+                                   replace=False,    # sample without replacement
+                                   n_samples=int(len(df_minority) * 0.65),  # set imbalance level
+                                   random_state=42)  
+
+# Combine minority class with downsampled majority class
+df_imbalanced = pd.concat([df_majority_downsampled, df_minority])
+
+# Shuffle the data
+df_imbalanced = df_imbalanced.sample(frac=1, random_state=42).reset_index(drop=True)
+
+# Check new class distribution
+print("Class distribution after imbalance:\n", df_imbalanced['Group'].value_counts())
